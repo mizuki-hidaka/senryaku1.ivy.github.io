@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <!-- スマホ対応の必須設定: 拡大縮小を禁止し、アプリのように表示 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>大将戦略 - Mobile</title>
+    <style>
+        :root {
+            --bg-color: #202020;
+            --text-color: #e0e0e0;
+            --accent-color: #d4af37;
+            /* スマホの画面幅に合わせてマスの大きさを計算 (左右の余白20px分引いて15分割) */
+            --cell-size: calc((100vw - 20px) / 15);
+        }
+
+        /* PCで見ても崩れないように最大サイズ制限 */
+        @media (min-width: 600px) {
+            :root { --cell-size: 35px; }
+            body { max-width: 600px; margin: 0 auto !important; border-left: 1px solid #444; border-right: 1px solid #444;}
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 10px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+            /* タッチ操作の遅延をなくす */
+            touch-action: manipulation; 
+            overflow: hidden; /* 全体のスクロール禁止 */
+        }
+
+        h1 { 
+            font-size: 18px; 
+            margin: 0 0 10px 0; 
+            border-bottom: 2px solid var(--accent-color); 
+            text-align: center;
+        }
+
+        /* HUD (HPなど) */
+        .hud-panel {
+            display: flex;
+            justify-content: space-between;
+            background: #333;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        .system-btns button {
+            font-size: 10px;
+            padding: 4px 8px;
+            background: #555;
+            color: white;
+            border: 1px solid #777;
+            border-radius: 4px;
+        }
+
+        /* ゲーム盤面 */
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(15, var(--cell-size));
+            grid-template-rows: repeat(15, var(--cell-size));
+            gap: 1px;
+            background-color: #111;
+            border: 2px solid #555;
+            margin: 0 auto; /* 中央寄せ */
+            flex-shrink: 0; /* 縮小させない */
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* スマホで見やすいようにフォントサイズ調整 */
+            font-size: calc(var(--cell-size) * 0.7); 
+            user-select: none; /* 長押し選択防止 */
+        }
+
+        .floor { background-color: #2e3b28; }
+        .wall { background-color: #5d4037; color: #3e2723; }
+        .player { text-shadow: 0 0 3px yellow; z-index: 10; }
+        .enemy { z-index: 5; }
+
+        /* ログウィンドウ（高さを抑える） */
+        #log-window {
+            flex-grow: 1; /* 余ったスペースを埋める */
+            background: #000;
+            border: 1px solid #444;
+            overflow-y: scroll;
+            font-family: monospace;
+            padding: 5px;
+            font-size: 11px;
+            margin: 5px 0;
+            min-height: 50px;
+        }
+        .log-entry { margin-bottom: 2px; border-bottom: 1px solid #222; }
+        .log-new { color: #88ff88; }
+        .log-warn { color: #ff8888; }
+
+        /* コントローラーエリア */
+        .controls-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            height: 140px;
+            padding-bottom: 10px;
+        }
+
+        /* 十字キー */
+        .d-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            width: 140px;
+            height: 140px;
+            justify-self: center;
+        }
+        .pad-btn {
+            background: #444;
+            border: 1px solid #222;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #fff;
+            box-shadow: 0 4px 0 #222;
+            active { box-shadow: 0 0 0; transform: translateY(4px); }
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .pad-btn:active {
+            background: #666;
+            box-shadow: inset 0 2px 5px #000;
+            transform: translateY(2px);
+        }
+
+        /* アクションボタン */
+        .action-area {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .big-btn {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            color: #000;
+            font-weight: bold;
+            font-size: 16px;
+            border: 4px solid #8e7012;
+            box-shadow: 0 6px 0 #5c480b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            line-height: 1.2;
+        }
+        .big-btn:active {
+            box-shadow: inset 0 3px 5px #332806;
+            transform: translateY(4px);
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- ヘッダー兼HUD -->
+    <div class="hud-panel">
+        <div style="font-weight:bold; color:var(--accent-color);">大将 <span id="hp-display">100</span> HP</div>
+        <div class="system-btns">
+            <button onclick="game.saveGame()">保存</button>
+            <button onclick="game.loadGame()">再開</button>
+            <button onclick="game.initGame()">New</button>
+        </div>
+    </div>
+
+    <!-- ゲーム盤面 -->
+    <div id="game-board"></div>
+
+    <!-- ログ -->
+    <div id="log-window"></div>
+
+    <!-- コントローラー -->
+    <div class="controls-area">
+        <!-- 十字キー -->
+        <div class="d-pad">
+            <div></div> <!-- 空白 -->
+            <div class="pad-btn" id="btn-up">▲</div>
+            <div></div> <!-- 空白 -->
+            
+            <div class="pad-btn" id="btn-left">◀</div>
+            <div style="background:#222; border-radius:4px;"></div> <!-- 中心 -->
+            <div class="pad-btn" id="btn-right">▶</div>
+
+            <div></div> <!-- 空白 -->
+            <div class="pad-btn" id="btn-down">▼</div>
+            <div></div> <!-- 空白 -->
+        </div>
+
+        <!-- アクションボタン -->
+        <div class="action-area">
+            <div class="big-btn" id="btn-command">
+                全軍<br>突撃
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * スマホ用ゲームロジック
+ * 基本ロジックは前のまま、タッチイベント処理を追加
+ */
+
+// --- 乱数クラス ---
+class Random {
+    constructor(seed) { this.seed = seed; }
+    next() {
+        var t = this.seed += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+    range(min, max) { return Math.floor(this.next() * (max - min) + min); }
+}
+
+// --- 定数 ---
+const TILE_FLOOR = 0;
+const TILE_WALL = 1;
+const BOARD_W = 15;
+const BOARD_H = 15;
+
+// --- ゲームエンジン ---
+class GameEngine {
+    constructor() {
+        this.data = {
+            seed: 0, mapData: [],
+            player: { x: 1, y: 1, hp: 100, maxHp: 100 },
+            enemies: []
+        };
+        this.boardEl = document.getElementById('game-board');
+        this.logEl = document.getElementById('log-window');
+        this.hpEl = document.getElementById('hp-display');
+    }
+
+    initGame() {
+        const seed = Math.floor(Math.random() * 10000);
+        this.data.seed = seed;
+        this.data.player = { x: 1, y: 1, hp: 100, maxHp: 100 };
+        this.data.enemies = [];
+        this.log("Sys", "マップ生成 Seed:" + seed);
+        this.generateMap(seed);
+        
+        const rng = new Random(seed + 1);
+        for(let i=0; i<6; i++) {
+            let ex = rng.range(1, BOARD_W - 1);
+            let ey = rng.range(1, BOARD_H - 1);
+            if(this.data.mapData[ey * BOARD_W + ex] === TILE_FLOOR && !(ex===1 && ey===1)) {
+                this.data.enemies.push({ x: ex, y: ey, hp: 30 });
+            }
+        }
+        this.render();
+        this.updateHUD();
+    }
+
+    generateMap(seed) {
+        const rng = new Random(seed);
+        this.data.mapData = [];
+        for (let y = 0; y < BOARD_H; y++) {
+            for (let x = 0; x < BOARD_W; x++) {
+                if (x === 0 || x === BOARD_W - 1 || y === 0 || y === BOARD_H - 1) {
+                    this.data.mapData.push(TILE_WALL);
+                } else {
+                    this.data.mapData.push(rng.next() < 0.25 ? TILE_WALL : TILE_FLOOR);
+                }
+            }
+        }
+        this.data.mapData[1 * BOARD_W + 1] = TILE_FLOOR;
+    }
+
+    movePlayer(dx, dy) {
+        if (this.data.player.hp <= 0) return;
+        const newX = this.data.player.x + dx;
+        const newY = this.data.player.y + dy;
+        const index = newY * BOARD_W + newX;
+
+        if (this.data.mapData[index] === TILE_WALL) return; // 壁
+
+        const enemyIndex = this.data.enemies.findIndex(e => e.x === newX && e.y === newY);
+        if (enemyIndex !== -1) {
+            this.attackEnemy(enemyIndex);
+            this.enemyTurn();
+            this.render();
+            return;
+        }
+
+        this.data.player.x = newX;
+        this.data.player.y = newY;
+        this.enemyTurn();
+        this.render();
+        this.updateHUD();
+    }
+
+    attackEnemy(index) {
+        const enemy = this.data.enemies[index];
+        enemy.hp -= 10;
+        this.log("戦闘", `敵に攻撃！残りHP:${enemy.hp}`);
+        if (enemy.hp <= 0) {
+            this.log("撃破", "敵部隊を倒した！", true);
+            this.data.enemies.splice(index, 1);
+        }
+    }
+
+    enemyTurn() {
+        this.data.enemies.forEach(enemy => {
+            let dx = 0, dy = 0;
+            if (Math.abs(enemy.x - this.data.player.x) > Math.abs(enemy.y - this.data.player.y)) {
+                dx = (enemy.x > this.data.player.x) ? -1 : 1;
+            } else {
+                dy = (enemy.y > this.data.player.y) ? -1 : 1;
+            }
+
+            const nextX = enemy.x + dx;
+            const nextY = enemy.y + dy;
+            const index = nextY * BOARD_W + nextX;
+
+            if (nextX === this.data.player.x && nextY === this.data.player.y) {
+                this.data.player.hp -= 5;
+                this.log("被弾", `敵の攻撃！HP-5`, true);
+                return;
+            }
+            if (this.data.mapData[index] !== TILE_WALL) {
+                enemy.x = nextX;
+                enemy.y = nextY;
+            }
+        });
+        if(this.data.player.hp <= 0) {
+            this.data.player.hp = 0;
+            this.log("敗北", "大将が倒れました...", true);
+            alert("GAME OVER");
+        }
+    }
+
+    issueCommand() {
+        if(this.data.player.hp <= 0) return;
+        this.log("号令", "全軍突撃！！");
+        let hit = false;
+        // 周囲2マスの敵を攻撃
+        for(let i = this.data.enemies.length - 1; i >= 0; i--) {
+            const e = this.data.enemies[i];
+            const dist = Math.abs(e.x - this.data.player.x) + Math.abs(e.y - this.data.player.y);
+            if(dist <= 2) {
+                e.hp -= 20;
+                hit = true;
+                if(e.hp <= 0) this.data.enemies.splice(i, 1);
+            }
+        }
+        if(hit) this.log("戦果", "周囲の敵を一掃！");
+        this.render();
+        this.updateHUD();
+    }
+
+    render() {
+        this.boardEl.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        for (let y = 0; y < BOARD_H; y++) {
+            for (let x = 0; x < BOARD_W; x++) {
+                const div = document.createElement('div');
+                div.className = 'cell';
+                const tile = this.data.mapData[y * BOARD_W + x];
+                
+                if (tile === TILE_WALL) { div.classList.add('wall'); div.innerText = '🌲'; }
+                else { div.classList.add('floor'); }
+
+                if (x === this.data.player.x && y === this.data.player.y) {
+                    div.classList.add('player'); div.innerText = '👑';
+                }
+                const enemy = this.data.enemies.find(e => e.x === x && e.y === y);
+                if (enemy) {
+                    div.classList.add('enemy'); div.innerText = '👹';
+                }
+                fragment.appendChild(div);
+            }
+        }
+        this.boardEl.appendChild(fragment);
+    }
+
+    updateHUD() {
+        this.hpEl.innerText = this.data.player.hp;
+        if(this.data.player.hp < 30) this.hpEl.style.color = "red";
+        else this.hpEl.style.color = "var(--accent-color)";
+    }
+
+    log(cat, msg, special=false) {
+        const div = document.createElement('div');
+        div.className = 'log-entry ' + (special ? 'log-warn' : 'log-new');
+        div.innerText = `[${cat}] ${msg}`;
+        this.logEl.prepend(div);
+    }
+
+    saveGame() {
+        localStorage.setItem('shogun_mobile_save', JSON.stringify(this.data));
+        alert("セーブしました");
+    }
+    loadGame() {
+        const json = localStorage.getItem('shogun_mobile_save');
+        if(json) {
+            this.data = JSON.parse(json);
+            this.render(); this.updateHUD();
+            this.log("Sys", "ロード完了");
+        }
+    }
+}
+
+// --- 初期化とイベント設定 ---
+const game = new GameEngine();
+game.initGame();
+
+// タッチイベントヘルパー (長押し拡大防止 & 高速反応)
+function setupBtn(id, callback) {
+    const btn = document.getElementById(id);
+    btn.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // ブラウザ標準動作をキャンセル
+        callback();
+        btn.style.transform = "scale(0.95)";
+    }, { passive: false });
+    
+    btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        btn.style.transform = "scale(1)";
+    }, { passive: false });
+
+    // PCのマウスでもクリックできるように残す
+    btn.addEventListener('click', callback);
+}
+
+setupBtn('btn-up', () => game.movePlayer(0, -1));
+setupBtn('btn-down', () => game.movePlayer(0, 1));
+setupBtn('btn-left', () => game.movePlayer(-1, 0));
+setupBtn('btn-right', () => game.movePlayer(1, 0));
+setupBtn('btn-command', () => game.issueCommand());
+
+// PCキーボード用
+document.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowUp') game.movePlayer(0, -1);
+    if(e.key === 'ArrowDown') game.movePlayer(0, 1);
+    if(e.key === 'ArrowLeft') game.movePlayer(-1, 0);
+    if(e.key === 'ArrowRight') game.movePlayer(1, 0);
+    if(e.key === 'c' || e.key === ' ') game.issueCommand();
+});
+
+</script>
+</body>
+</html>
